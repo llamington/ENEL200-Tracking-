@@ -1,24 +1,31 @@
 #include <LiquidCrystal_I2C.h>
 
 #define SERIAL_BAUD_RATE 115200
+
 #define DISP_SHOW_BTN_PIN 2
+#define IR_PIN A0
 #define COUNTER_RESET_PIN 3
-#define CAMERA_TRIGGER_PIN LED_BUILTIN // SET THIS
+#define CAMERA_TRIGGER_PIN LED_BUILTIN // TODO: SET THIS
 
 #define ADC_MIN 0
 #define ADC_MAX 1023 // 2^10 - 1
 
 #define IR_RANGE_MAX 80.0
 #define IR_RANGE_MIN 5.70760233918128
-#define IR_PIN A0
 #define IR_OUT_OF_RANGE -1
 #define IR_CURVE_COEFFICIENT 13.5
 #define IR_CURVE_EXP -0.791
 
-#define DETECTION_MS 100
-#define DETECTION_DEV_CM 0.5 // deviation in width for detection event
+#define DETECTION_MS 100 // ms required for a detection event
+#define DETECTION_DEV_CM 1 // deviation in width for detection event
 
-#define CAMERA_TRIGGER_PULSE_MS 30
+#define CAMERA_TRIGGER_PULSE_MS 30 // pulse that camera requires
+
+#define INITIALISATION_DELAY_MS 1000
+
+#define DISPLAY_TIMEOUT_MS 10000
+
+#define POLLING_DELAY_MS 50
 
 double tunnelWidth;
 float curRange;
@@ -27,6 +34,7 @@ uint8_t msDetected = 0;
 bool animalInTunnel = false; // if animal has exited tunnel, as to not be tracked twice
 bool dispOn = false;
 uint16_t dispOnTime = 0;
+bool shouldUpdateDisp = false;
 
 LiquidCrystal_I2C lcd(0x27,20,4);
 
@@ -53,41 +61,46 @@ void setup(void)
   lcd.print(tunnelWidth);
   Serial.print("TUNNEL WIDTH = "); //if out of range display error
   Serial.println(tunnelWidth);
-  delay(1000);
   displayAnimalCount();
+  delay(INITIALISATION_DELAY_MS);
 }
 
 // runs indefinitely
 void loop(void)
 {
   curRange = readRangeCm();
-  if(dispOn && (dispOnTime <= 10000)) {
+  
+  if(dispOn && (dispOnTime <= DISPLAY_TIMEOUT_MS)) {
     lcd.backlight();
   } else {
     lcd.noBacklight();
     dispOn = false;
     dispOnTime = 0;
   }
-  if((curRange <= (tunnelWidth - 0.5)) || (curRange >= (tunnelWidth + 0.5))) {
-    if(((msDetected += 50) >= DETECTION_MS) && !animalInTunnel) {
+  
+  if(shouldUpdateDisp) {
+    displayAnimalCount();
+    shouldUpdateDisp = false;
+  }
+  
+  if((curRange <= (tunnelWidth - DETECTION_DEV_CM)) || (curRange >= (tunnelWidth + DETECTION_DEV_CM))) {
+    if(((msDetected += POLLING_DELAY_MS) >= DETECTION_MS) && !animalInTunnel) {
       animalInTunnel = true;
       nPredators++;
       msDetected = 0;
       pulseCameraTrigger();
+      shouldUpdateDisp = true;
       Serial.println("Animal Detected");
-      displayAnimalCount();
       delay(100);
     } 
   } else animalInTunnel = false;
-  dispOnTime += 50;
-  delay(50);
+  dispOnTime += POLLING_DELAY_MS;
+  delay(POLLING_DELAY_MS);
 }
 
 // converts raw ADC output to voltage
 float rawToVoltage(uint16_t raw)
 {
-  Serial.print(raw);
-  Serial.print(" ");
   return raw * (5.0 / 1023.0);
 }
 
@@ -95,8 +108,6 @@ float rawToVoltage(uint16_t raw)
 double voltageToRange(float voltage)
 {
   float range = IR_CURVE_COEFFICIENT * pow(voltage, IR_CURVE_EXP);
-  Serial.print(voltage);
-  Serial.print(" ");
   if((range <= IR_RANGE_MAX) && (range >= IR_RANGE_MIN)) {
     Serial.println(range);
     return range;
@@ -116,6 +127,7 @@ void handleAnimalCountReset(void)
 {
   // may need debouncing
   nPredators = 0;
+  shouldUpdateDisp = true;
 }
 
 // reads IR sensor, returns range in cm
