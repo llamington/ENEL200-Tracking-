@@ -20,10 +20,10 @@
 #define IR_CURVE_COEFFICIENT 26.85
 #define IR_CURVE_EXP -1.2642
 
-#define DETECTION_DEV_CM 1.0 // deviation in width for detection event
+#define DETECTION_DEV_CM 1.5 // deviation in width for detection event
 
 #define CAMERA_TRIGGER_PULSE_MS 30 // pulse that camera requires
-#define INITIALISATION_DELAY_MS 1000
+#define INITIALISATION_DELAY_MS 5000
 #define DISPLAY_TIMEOUT_MS 10000
 #define POLLING_DELAY_MS 50
 #define DETECTION_MS 100 // ms required for a detection event
@@ -42,6 +42,7 @@ LiquidCrystal_I2C lcd(DISP_I2C_ADDR, DISP_RES_H, DISP_RES_V);
 // runs once
 void setup(void)
 {
+
   pinMode(DISP_SHOW_BTN_PIN, INPUT_PULLUP);
   pinMode(COUNTER_RESET_PIN, INPUT_PULLUP);
   pinMode(CAMERA_TRIGGER_PIN, OUTPUT);
@@ -49,8 +50,11 @@ void setup(void)
   digitalWrite(CAMERA_TRIGGER_PIN, LOW);
 
   Serial.begin(SERIAL_BAUD_RATE);
+
+//  delay(INITIALISATION_DELAY_MS);
   lcd.init();
   lcd.backlight();
+  
   lcd.print(F("INITIALISED"));
   Serial.println(F("TRACKING TUNNEL INITIALISED"));
   
@@ -72,16 +76,17 @@ void setup(void)
   lcd.print(tunnelWidth);
   Serial.print(F("TUNNEL WIDTH = "));
   Serial.println(tunnelWidth);
-  displayAnimalCount();
   delay(INITIALISATION_DELAY_MS);
   lcd.noBacklight();
+  displayAnimalCount();
 }
 
 // runs indefinitely
 void loop(void)
 {
   curRange = readRangeCm();
-  
+
+  // turn lcd off if display timeout elapsed
   if(dispOn && (dispOnTime <= DISPLAY_TIMEOUT_MS)) {
     lcd.backlight();
   } else {
@@ -90,19 +95,22 @@ void loop(void)
     dispOnTime = 0;
   }
   
+  //update display if display signal received
   if(shouldUpdateDisp) {
     displayAnimalCount();
     shouldUpdateDisp = false;
   }
   
-  if((curRange <= (tunnelWidth - DETECTION_DEV_CM)) || (curRange >= (tunnelWidth + DETECTION_DEV_CM))) {
-    if(((msDetected += POLLING_DELAY_MS) >= DETECTION_MS) && !animalInTunnel) {
+  // if current range deviates from tunnel width
+  if((curRange <= (tunnelWidth - DETECTION_DEV_CM)) || (curRange >= (tunnelWidth + DETECTION_DEV_CM))) { 
+    // only handle new animal if detected for the set time, and not already an animal in the tunnel
+    if(((msDetected += POLLING_DELAY_MS) >= DETECTION_MS) && !animalInTunnel) { 
       animalInTunnel = true;
       nPredators++;
       msDetected = 0;
       pulseCameraTrigger();
       shouldUpdateDisp = true;
-      Serial.println("Animal Detected");
+      Serial.println("ANIMAL DETECTED");
     } 
   } else animalInTunnel = false;
   dispOnTime += POLLING_DELAY_MS;
@@ -119,6 +127,7 @@ float rawToVoltage(uint16_t raw)
 double voltageToRange(float voltage)
 {
   float range = IR_CURVE_COEFFICIENT * pow(voltage, IR_CURVE_EXP);
+  Serial.println(range);
   if((range <= IR_RANGE_MAX) && (range >= IR_RANGE_MIN)) {
     return range;
   }
@@ -158,7 +167,7 @@ void pulseCameraTrigger(void)
 // updates LCD with current animal count
 void displayAnimalCount() {
   lcd.clear();
-  lcd.print(F("Animal Count ="));
+  lcd.print(F("ANIMAL COUNT ="));
   lcd.setCursor(0, 1);
   lcd.print(nPredators);
 }
